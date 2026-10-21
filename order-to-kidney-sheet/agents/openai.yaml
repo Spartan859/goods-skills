@@ -1,0 +1,7 @@
+interface:
+  display_name: "排表生成肾表"
+  short_description: "从排表或肾表数据生成含价格公式和 CN 汇总的 xlsm"
+  default_prompt: "Use $order-to-kidney-sheet to turn this order or payment data into a workbook with an allocation table and kidney summary."
+
+policy:
+  allow_implicit_invocation: true
