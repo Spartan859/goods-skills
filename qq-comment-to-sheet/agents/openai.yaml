@@ -1,7 +1,7 @@
 interface:
   display_name: "QQ 评论排单转表格"
-  short_description: "将带时间戳的群评论或截图整理为固定九槽位的商品排单表"
-  default_prompt: "Use $qq-comment-to-sheet to convert these timestamped order comments into a nine-slot allocation table."
+  short_description: "将群评论或截图整理为商品与槽位可配置的排单表"
+  default_prompt: "Use $qq-comment-to-sheet to infer and confirm the product rows and slot count, then convert these timestamped order comments into an allocation table."
 
 policy:
   allow_implicit_invocation: true

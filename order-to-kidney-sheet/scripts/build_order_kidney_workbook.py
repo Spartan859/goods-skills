@@ -14,16 +14,16 @@ from typing import Any
 
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
-from openpyxl.worksheet.table import Table
+from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.table import Table, TableColumn
 
-SLOT_HEADERS = [f"第{i}配" for i in range(1, 11)]
-TOP_HEADERS = ["列1", *SLOT_HEADERS, "调价", "价格", "汇率", "单价"]
 KIDNEY_HEADERS = ["CN", "应付", "点数"]
 TOP_TABLE_NAME = "海边心_排表32"
 BOTTOM_TABLE_NAME = "表9"
+DEFAULT_ALLOCATION_COUNT = 10
 DEFAULT_TEMPLATE = Path(__file__).resolve().parents[1] / "assets" / "order-kidney-template.xlsm"
 
-SPEC_KEYS = {"source_mode", "title", "products", "kidney_rows"}
+SPEC_KEYS = {"source_mode", "title", "allocation_count", "products", "kidney_rows"}
 PRODUCT_KEYS = {
     "name",
     "allocations",
@@ -73,6 +73,21 @@ def _optional_number(product: dict[str, Any], key: str, label: str) -> float | N
     return _finite_number(value, label)
 
 
+def _allocation_count(spec: dict[str, Any]) -> int:
+    raw_count = spec.get("allocation_count", DEFAULT_ALLOCATION_COUNT)
+    if isinstance(raw_count, bool) or not isinstance(raw_count, int) or raw_count < 1:
+        raise WorkbookBuildError("allocation_count 必须是大于 0 的整数")
+    return raw_count
+
+
+def _allocation_headers(allocation_count: int) -> list[str]:
+    return [f"第{i}配" for i in range(1, allocation_count + 1)]
+
+
+def _top_headers(allocation_count: int) -> list[str]:
+    return ["列1", *_allocation_headers(allocation_count), "调价", "价格", "汇率", "单价"]
+
+
 def _validate_spec(raw: Any) -> dict[str, Any]:
     spec = _plain_mapping(raw, "输入")
     _reject_unknown(spec, SPEC_KEYS, "输入")
@@ -87,6 +102,7 @@ def _validate_spec(raw: Any) -> dict[str, Any]:
     if not isinstance(title, str):
         raise WorkbookBuildError("title 必须是字符串")
     title = title.strip()
+    allocation_count = _allocation_count(spec)
 
     products_raw = spec.get("products", [])
     kidney_raw = spec.get("kidney_rows", [])
@@ -104,8 +120,10 @@ def _validate_spec(raw: Any) -> dict[str, Any]:
         allocations = product.get("allocations", [])
         if not isinstance(allocations, list):
             raise WorkbookBuildError(f"products[{index}].allocations 必须是数组")
-        if len(allocations) > 10:
-            raise WorkbookBuildError(f"products[{index}].allocations 最多包含 10 个配位")
+        if len(allocations) > allocation_count:
+            raise WorkbookBuildError(
+                f"products[{index}].allocations 超过 allocation_count={allocation_count}"
+            )
         normalized_allocations: list[str | None] = []
         for slot_index, value in enumerate(allocations, start=1):
             if value is None or value == "":
@@ -116,7 +134,9 @@ def _validate_spec(raw: Any) -> dict[str, Any]:
                 raise WorkbookBuildError(
                     f"products[{index}].allocations[{slot_index}] 必须是用户名或 null"
                 )
-        normalized_allocations.extend([None] * (10 - len(normalized_allocations)))
+        normalized_allocations.extend(
+            [None] * (allocation_count - len(normalized_allocations))
+        )
 
         price = _optional_number(product, "price", f"products[{index}].price")
         unit_price = _optional_number(
@@ -194,6 +214,7 @@ def _validate_spec(raw: Any) -> dict[str, Any]:
     return {
         "source_mode": mode,
         "title": title,
+        "allocation_count": allocation_count,
         "products": products,
         "kidney_rows": kidney_rows,
     }
@@ -209,10 +230,12 @@ def _product_price(product: dict[str, Any]) -> float:
     )
 
 
-def _arrangement_summary(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _arrangement_summary(
+    products: list[dict[str, Any]], allocation_count: int
+) -> list[dict[str, Any]]:
     order: list[str] = []
     totals: dict[str, dict[str, Any]] = {}
-    for slot_index in range(10):
+    for slot_index in range(allocation_count):
         for product in products:
             cn = product["allocations"][slot_index]
             if not cn:
@@ -251,26 +274,51 @@ def _copy_cell_style(source, target) -> None:
         target.protection = copy(source.protection)
 
 
-def _prepare_layout(ws, product_count: int, kidney_count: int) -> tuple[int, int, int, int]:
+def _top_template_column(column: int, allocation_count: int) -> int:
+    if column == 1:
+        return 1
+    if column <= allocation_count + 1:
+        return 2
+    return 11 + (column - (allocation_count + 1))
+
+
+def _prepare_layout(
+    ws, product_count: int, kidney_count: int, allocation_count: int
+) -> tuple[int, int, int, int]:
     top_end = 3 + max(product_count, 1) - 1
     lower_title_row = max(11, top_end + 3)
     bottom_header_row = lower_title_row + 1
     bottom_end_row = bottom_header_row + max(kidney_count, 1)
+    last_column = allocation_count + 5
 
     for merged_range in list(ws.merged_cells.ranges):
-        if str(merged_range) == "A1:O1" or str(merged_range).startswith("A11:C11"):
+        if (
+            merged_range.min_row == 1
+            and merged_range.min_col == 1
+            or str(merged_range).startswith("A11:C11")
+        ):
             ws.unmerge_cells(str(merged_range))
 
     max_clear_row = max(28, bottom_end_row + 2)
-    for row in ws.iter_rows(min_row=1, max_row=max_clear_row, min_col=1, max_col=21):
+    max_clear_column = max(21, last_column)
+    for row in ws.iter_rows(
+        min_row=1,
+        max_row=max_clear_row,
+        min_col=1,
+        max_col=max_clear_column,
+    ):
         for cell in row:
             cell.value = None
 
-    top_style_row = 3
-    for target_row in range(3, top_end + 1):
-        if target_row > 8:
-            for column in range(1, 16):
-                _copy_cell_style(ws.cell(3, column), ws.cell(target_row, column))
+    for target_row in range(2, top_end + 1):
+        source_row = 2 if target_row == 2 else 3
+        for target_column in range(1, last_column + 1):
+            source_column = _top_template_column(target_column, allocation_count)
+            _copy_cell_style(
+                ws.cell(source_row, source_column),
+                ws.cell(target_row, target_column),
+            )
+        if target_row not in (2, 3):
             ws.row_dimensions[target_row].height = ws.row_dimensions[3].height
 
     if lower_title_row != 11:
@@ -285,7 +333,7 @@ def _prepare_layout(ws, product_count: int, kidney_count: int) -> tuple[int, int
                 _copy_cell_style(ws.cell(source_row, column), ws.cell(target_row, column))
             ws.row_dimensions[target_row].height = ws.row_dimensions[source_row].height
 
-    ws.merge_cells("A1:O1")
+    ws.merge_cells(f"A1:{get_column_letter(last_column)}1")
     ws.merge_cells(f"A{lower_title_row}:C{lower_title_row}")
     ws["A1"].alignment = Alignment(horizontal="left", vertical="center")
     ws[f"A{lower_title_row}"].alignment = Alignment(
@@ -304,6 +352,13 @@ def _clear_table_formulas(ws) -> None:
     for table in ws.tables.values():
         for column in table.tableColumns:
             column.calculatedColumnFormula = None
+
+
+def _set_table_columns(table: Table, headers: list[str]) -> None:
+    table.tableColumns = [
+        TableColumn(id=index, name=header)
+        for index, header in enumerate(headers, start=1)
+    ]
 
 
 def build_workbook(
@@ -328,20 +383,27 @@ def build_workbook(
     ws._images.clear()
 
     products = spec["products"]
+    allocation_count = spec["allocation_count"]
     kidney_rows = (
-        _arrangement_summary(products)
+        _arrangement_summary(products, allocation_count)
         if spec["source_mode"] == "arrangement"
         else _kidney_summary(spec["kidney_rows"])
     )
     top_end, lower_title_row, bottom_header_row, bottom_end_row = _prepare_layout(
-        ws, len(products), len(kidney_rows)
+        ws, len(products), len(kidney_rows), allocation_count
     )
 
     title = spec["title"]
     ws["A1"] = f"{title} 排表".strip()
     ws[f"A{lower_title_row}"] = f"{title} 肾表".strip()
 
-    for column, header in enumerate(TOP_HEADERS, start=1):
+    top_headers = _top_headers(allocation_count)
+    top_last_column = len(top_headers)
+    adjustment_column = allocation_count + 2
+    price_column = adjustment_column + 1
+    exchange_column = price_column + 1
+    unit_column = exchange_column + 1
+    for column, header in enumerate(top_headers, start=1):
         ws.cell(2, column).value = header
     for column, header in enumerate(KIDNEY_HEADERS, start=1):
         ws.cell(bottom_header_row, column).value = header
@@ -352,16 +414,21 @@ def build_workbook(
             ws.cell(row, 1).value = product["name"]
             for slot_offset, cn in enumerate(product["allocations"], start=2):
                 ws.cell(row, slot_offset).value = cn
-            ws.cell(row, 12).value = product["adjustment"]
+            ws.cell(row, adjustment_column).value = product["adjustment"]
             if product["price"] is not None:
-                ws.cell(row, 13).value = product["price"]
+                ws.cell(row, price_column).value = product["price"]
             else:
-                ws.cell(row, 13).value = f"=O{row}*N{row}+L{row}"
-            ws.cell(row, 14).value = product["exchange_rate"]
-            ws.cell(row, 15).value = product["unit_price"]
-            ws.cell(row, 13).number_format = "0.00"
+                adjustment_cell = f"{get_column_letter(adjustment_column)}{row}"
+                exchange_cell = f"{get_column_letter(exchange_column)}{row}"
+                unit_cell = f"{get_column_letter(unit_column)}{row}"
+                ws.cell(row, price_column).value = (
+                    f"={unit_cell}*{exchange_cell}+{adjustment_cell}"
+                )
+            ws.cell(row, exchange_column).value = product["exchange_rate"]
+            ws.cell(row, unit_column).value = product["unit_price"]
+            ws.cell(row, price_column).number_format = "0.00"
     else:
-        for column in range(1, 16):
+        for column in range(1, top_last_column + 1):
             ws.cell(3, column).value = None
 
     for offset, item in enumerate(kidney_rows):
@@ -371,7 +438,10 @@ def build_workbook(
         ws.cell(row, 2).number_format = "0.00"
         ws.cell(row, 3).value = item["points"]
 
-    _set_table_ref(ws.tables[TOP_TABLE_NAME], f"A2:O{top_end}")
+    top_last_letter = get_column_letter(top_last_column)
+    top_table = ws.tables[TOP_TABLE_NAME]
+    _set_table_ref(top_table, f"A2:{top_last_letter}{top_end}")
+    _set_table_columns(top_table, top_headers)
     _set_table_ref(
         ws.tables[BOTTOM_TABLE_NAME],
         f"A{bottom_header_row}:C{bottom_end_row}",

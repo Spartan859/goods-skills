@@ -128,7 +128,7 @@ class LayoutAndValidationTests(unittest.TestCase):
             self.assertIn("A2:O10", [table.ref for table in ws.tables.values()])
             self.assertIn("A14:C15", [table.ref for table in ws.tables.values()])
 
-    def test_rejects_more_than_ten_allocations(self):
+    def test_rejects_allocations_longer_than_default_count(self):
         spec = {
             "source_mode": "arrangement",
             "title": "错误",
@@ -143,7 +143,7 @@ class LayoutAndValidationTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as temp_dir:
             out = Path(temp_dir) / "invalid.xlsm"
-            with self.assertRaisesRegex(ValueError, "最多包含 10 个配位"):
+            with self.assertRaisesRegex(ValueError, "allocation_count=10"):
                 build_workbook(spec, out)
             self.assertFalse(out.exists())
 
@@ -245,6 +245,129 @@ class LayoutAndValidationTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             out = Path(temp_dir) / "kidney.xlsx"
             with self.assertRaisesRegex(ValueError, "必须使用 .xlsm"):
+                build_workbook(spec, out)
+            self.assertFalse(out.exists())
+
+
+class VariableAllocationCountTests(unittest.TestCase):
+    def test_builds_three_allocation_columns(self):
+        spec = {
+            "source_mode": "arrangement",
+            "title": "三列",
+            "allocation_count": 3,
+            "products": [
+                {
+                    "name": "梨",
+                    "allocations": ["A", "B", None],
+                    "unit_price": 10,
+                    "exchange_rate": 2,
+                    "adjustment": 1,
+                }
+            ],
+            "kidney_rows": [],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out = Path(temp_dir) / "three-columns.xlsm"
+            build_workbook(spec, out)
+            ws = load_workbook(out, keep_vba=True, data_only=False)["Sheet1"]
+
+            self.assertEqual(
+                [ws.cell(2, column).value for column in range(1, 9)],
+                ["列1", "第1配", "第2配", "第3配", "调价", "价格", "汇率", "单价"],
+            )
+            self.assertEqual([ws["B3"].value, ws["C3"].value, ws["D3"].value], ["A", "B", None])
+            self.assertEqual([ws["E3"].value, ws["G3"].value, ws["H3"].value], [1, 2, 10])
+            self.assertEqual(ws["F3"].value, "=H3*G3+E3")
+            self.assertIn("A2:H3", [table.ref for table in ws.tables.values()])
+            self.assertEqual(ws["A13"].value, "A")
+            self.assertAlmostEqual(ws["B13"].value, 21)
+            self.assertEqual(ws["C13"].value, 1)
+            self.assertEqual(ws["A14"].value, "B")
+            self.assertAlmostEqual(ws["B14"].value, 21)
+            self.assertEqual(ws["C14"].value, 1)
+
+    def test_builds_twelve_allocation_columns(self):
+        spec = {
+            "source_mode": "arrangement",
+            "title": "十二列",
+            "allocation_count": 12,
+            "products": [
+                {
+                    "name": "梨",
+                    "allocations": ["A"] * 12,
+                    "price": 2.5,
+                }
+            ],
+            "kidney_rows": [],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out = Path(temp_dir) / "twelve-columns.xlsm"
+            build_workbook(spec, out)
+            wb = load_workbook(out, keep_vba=True, data_only=False)
+            ws = wb["Sheet1"]
+
+            self.assertEqual(ws["M2"].value, "第12配")
+            self.assertEqual([ws["N2"].value, ws["O2"].value, ws["P2"].value, ws["Q2"].value], ["调价", "价格", "汇率", "单价"])
+            self.assertIn("A2:Q3", [table.ref for table in ws.tables.values()])
+            top_table = next(table for table in ws.tables.values() if table.ref.startswith("A2:"))
+            self.assertEqual(len(top_table.tableColumns), 17)
+            self.assertEqual([column.name for column in top_table.tableColumns][-4:], ["调价", "价格", "汇率", "单价"])
+            self.assertEqual(ws["A13"].value, "A")
+            self.assertAlmostEqual(ws["B13"].value, 30)
+            self.assertEqual(ws["C13"].value, 12)
+
+    def test_defaults_allocation_count_to_ten(self):
+        spec = {
+            "source_mode": "arrangement",
+            "title": "默认十列",
+            "products": [
+                {
+                    "name": "梨",
+                    "allocations": ["A"],
+                    "price": 1,
+                }
+            ],
+            "kidney_rows": [],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out = Path(temp_dir) / "default-ten.xlsm"
+            build_workbook(spec, out)
+            ws = load_workbook(out, keep_vba=True, data_only=False)["Sheet1"]
+            self.assertEqual([ws["B2"].value, ws["K2"].value], ["第1配", "第10配"])
+            self.assertEqual(ws["L2"].value, "调价")
+            self.assertIn("A2:O3", [table.ref for table in ws.tables.values()])
+
+    def test_rejects_invalid_allocation_count(self):
+        for invalid in (0, -1, 1.5, True, "3"):
+            with self.subTest(invalid=invalid):
+                spec = {
+                    "source_mode": "kidney",
+                    "allocation_count": invalid,
+                    "products": [],
+                    "kidney_rows": [{"cn": "甲", "amount": 1}],
+                }
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    out = Path(temp_dir) / "invalid-count.xlsm"
+                    with self.assertRaisesRegex(ValueError, "allocation_count"):
+                        build_workbook(spec, out)
+                    self.assertFalse(out.exists())
+
+    def test_rejects_allocation_list_longer_than_confirmed_count(self):
+        spec = {
+            "source_mode": "arrangement",
+            "allocation_count": 2,
+            "products": [
+                {
+                    "name": "梨",
+                    "allocations": ["A", "B", "C"],
+                    "price": 1,
+                }
+            ],
+            "kidney_rows": [],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out = Path(temp_dir) / "too-many-allocations.xlsm"
+            with self.assertRaisesRegex(ValueError, "allocation_count"):
                 build_workbook(spec, out)
             self.assertFalse(out.exists())
 
