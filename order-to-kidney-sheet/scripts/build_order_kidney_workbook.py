@@ -335,9 +335,9 @@ def _prepare_layout(
 
     ws.merge_cells(f"A1:{get_column_letter(last_column)}1")
     ws.merge_cells(f"A{lower_title_row}:C{lower_title_row}")
-    ws["A1"].alignment = Alignment(horizontal="left", vertical="center")
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
     ws[f"A{lower_title_row}"].alignment = Alignment(
-        horizontal="left", vertical="center"
+        horizontal="center", vertical="center"
     )
     return top_end, lower_title_row, bottom_header_row, bottom_end_row
 

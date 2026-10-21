@@ -458,5 +458,34 @@ class TableFormulaMetadataTests(unittest.TestCase):
                     )
 
 
+class TitleLayoutTests(unittest.TestCase):
+    def test_merges_and_centers_both_table_titles(self):
+        spec = {
+            "source_mode": "arrangement",
+            "title": "标题样式",
+            "allocation_count": 4,
+            "products": [
+                {
+                    "name": "梨",
+                    "allocations": ["A", None, None, None],
+                    "price": 1,
+                }
+            ],
+            "kidney_rows": [],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out = Path(temp_dir) / "titles.xlsm"
+            build_workbook(spec, out)
+            ws = load_workbook(out, keep_vba=True, data_only=False)["Sheet1"]
+
+            merged = {str(item) for item in ws.merged_cells.ranges}
+            self.assertIn("A1:I1", merged)
+            self.assertIn("A11:C11", merged)
+            self.assertEqual(ws["A1"].alignment.horizontal, "center")
+            self.assertEqual(ws["A11"].alignment.horizontal, "center")
+            self.assertEqual(ws["A1"].alignment.vertical, "center")
+            self.assertEqual(ws["A11"].alignment.vertical, "center")
+
+
 if __name__ == "__main__":
     unittest.main()

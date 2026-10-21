@@ -110,6 +110,7 @@ python3 scripts/build_order_kidney_workbook.py \
 - 文件为有效 `.xlsm`，并包含 `xl/vbaProject.bin`。
 - 上半部包含 `第1配` 至 `第allocation_count配`，下半部包含 `CN、应付、点数`。
 - 排表 Table 和肾表 Table 的范围覆盖全部数据且互不重叠。
+- 顶部“排表”和底部“肾表”标题均使用合并单元格，并水平、垂直居中。
 - 工作簿无图片、二维码或示例个人信息。
 - 价格公式存在，OpenXML 压缩结构完整。
 
