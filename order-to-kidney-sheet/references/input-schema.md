@@ -13,6 +13,7 @@
 | `allocation_count` | integer | 否 | 配位列数，大于 0；省略时为默认 10 |
 | `products` | array | 是 | 排表或空数组 |
 | `kidney_rows` | array | 是 | 直接肾表数据或空数组 |
+| `qr_image` | string | 否 | 本地二维码图片路径；由本地记忆默认值或用户当次提供 |
 
 ## 排表模式
 
@@ -33,7 +34,8 @@
       "adjustment": 6
     }
   ],
-  "kidney_rows": []
+  "kidney_rows": [],
+  "qr_image": "/path/to/local-qr.png"
 }
 ```
 
@@ -60,7 +62,8 @@
   "products": [],
   "kidney_rows": [
     {"cn": "甲", "amount": 41.57, "points": null}
-  ]
+  ],
+  "qr_image": null
 }
 ```
 
@@ -74,6 +77,8 @@
 
 `products` 必须为空，`kidney_rows` 至少包含一行。排表数据行留空，但配位表头按 `allocation_count` 生成。
 
+`qr_image` 可省略或为 `null`。提供时必须指向存在且可读取的本地图片；技能调用方负责先读取本地记忆并在没有默认值时询问用户。
+
 ## 错误条件
 
 以下情况必须停止生成，而不是修正或猜测：
@@ -85,3 +90,4 @@
 - 固定价格与价格计算参数同时出现。
 - 非有限数字、负数点数或非整数点数。
 - 模式与数据结构不匹配。
+- `qr_image` 路径为空、不存在或不是有效图片。

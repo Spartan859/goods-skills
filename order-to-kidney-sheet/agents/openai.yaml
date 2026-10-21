@@ -1,7 +1,7 @@
 interface:
   display_name: "排表生成肾表"
   short_description: "用可配置配位数生成含价格公式和 CN 汇总的 xlsm"
-  default_prompt: "Use $order-to-kidney-sheet to infer and confirm the allocation count and table parameters, then build the order and kidney workbook."
+  default_prompt: "Use $order-to-kidney-sheet to infer and confirm the allocation count and table parameters, then build the order and kidney workbook with the appropriate optional QR code."
 
 policy:
   allow_implicit_invocation: true

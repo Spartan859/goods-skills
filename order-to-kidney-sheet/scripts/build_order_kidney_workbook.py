@@ -13,17 +13,28 @@ from pathlib import Path
 from typing import Any
 
 from openpyxl import load_workbook
+from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.table import Table, TableColumn
+from PIL import Image as PILImage
 
 KIDNEY_HEADERS = ["CN", "应付", "点数"]
 TOP_TABLE_NAME = "海边心_排表32"
 BOTTOM_TABLE_NAME = "表9"
 DEFAULT_ALLOCATION_COUNT = 10
+MAX_QR_WIDTH = 280
+MAX_QR_HEIGHT = 300
 DEFAULT_TEMPLATE = Path(__file__).resolve().parents[1] / "assets" / "order-kidney-template.xlsm"
 
-SPEC_KEYS = {"source_mode", "title", "allocation_count", "products", "kidney_rows"}
+SPEC_KEYS = {
+    "source_mode",
+    "title",
+    "allocation_count",
+    "products",
+    "kidney_rows",
+    "qr_image",
+}
 PRODUCT_KEYS = {
     "name",
     "allocations",
@@ -88,6 +99,23 @@ def _top_headers(allocation_count: int) -> list[str]:
     return ["列1", *_allocation_headers(allocation_count), "调价", "价格", "汇率", "单价"]
 
 
+def _qr_image_path(spec: dict[str, Any]) -> str | None:
+    raw_path = spec.get("qr_image")
+    if raw_path is None:
+        return None
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        raise WorkbookBuildError("qr_image 必须是非空文件路径")
+    path = Path(raw_path).expanduser().resolve()
+    if not path.is_file():
+        raise WorkbookBuildError(f"qr_image 文件不存在: {path}")
+    try:
+        with PILImage.open(path) as image:
+            image.verify()
+    except Exception as error:
+        raise WorkbookBuildError(f"qr_image 不是有效图片: {path}") from error
+    return str(path)
+
+
 def _validate_spec(raw: Any) -> dict[str, Any]:
     spec = _plain_mapping(raw, "输入")
     _reject_unknown(spec, SPEC_KEYS, "输入")
@@ -103,6 +131,7 @@ def _validate_spec(raw: Any) -> dict[str, Any]:
         raise WorkbookBuildError("title 必须是字符串")
     title = title.strip()
     allocation_count = _allocation_count(spec)
+    qr_image = _qr_image_path(spec)
 
     products_raw = spec.get("products", [])
     kidney_raw = spec.get("kidney_rows", [])
@@ -217,6 +246,7 @@ def _validate_spec(raw: Any) -> dict[str, Any]:
         "allocation_count": allocation_count,
         "products": products,
         "kidney_rows": kidney_rows,
+        "qr_image": qr_image,
     }
 
 
@@ -361,6 +391,16 @@ def _set_table_columns(table: Table, headers: list[str]) -> None:
     ]
 
 
+def _add_qr_image(ws, qr_image: str | None, anchor_row: int) -> None:
+    if qr_image is None:
+        return
+    image = XLImage(qr_image)
+    scale = min(MAX_QR_WIDTH / image.width, MAX_QR_HEIGHT / image.height, 1)
+    image.width = max(1, round(image.width * scale))
+    image.height = max(1, round(image.height * scale))
+    ws.add_image(image, f"D{anchor_row}")
+
+
 def build_workbook(
     raw_spec: Any, output_path: str | Path, template_path: str | Path | None = None
 ) -> Path:
@@ -447,6 +487,7 @@ def build_workbook(
         f"A{bottom_header_row}:C{bottom_end_row}",
     )
     _clear_table_formulas(ws)
+    _add_qr_image(ws, spec["qr_image"], lower_title_row)
 
     wb.calculation.calcMode = "auto"
     wb.calculation.fullCalcOnLoad = True

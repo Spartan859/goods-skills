@@ -5,6 +5,7 @@ import zipfile
 from pathlib import Path
 
 from openpyxl import load_workbook
+from PIL import Image
 
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SKILL_ROOT / "scripts"))
@@ -485,6 +486,70 @@ class TitleLayoutTests(unittest.TestCase):
             self.assertEqual(ws["A11"].alignment.horizontal, "center")
             self.assertEqual(ws["A1"].alignment.vertical, "center")
             self.assertEqual(ws["A11"].alignment.vertical, "center")
+
+
+class QrImageTests(unittest.TestCase):
+    @staticmethod
+    def _make_qr(path: Path) -> None:
+        image = Image.new("RGB", (120, 140), "white")
+        pixels = image.load()
+        for x in range(10, 110):
+            for y in range(10, 110):
+                if (x // 10 + y // 10) % 2 == 0:
+                    pixels[x, y] = (0, 0, 0)
+        image.save(path)
+
+    def test_embeds_qr_image_beside_kidney_table(self):
+        spec = {
+            "source_mode": "kidney",
+            "title": "带二维码",
+            "allocation_count": 10,
+            "products": [],
+            "kidney_rows": [{"cn": "甲", "amount": 1, "points": None}],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            qr = Path(temp_dir) / "local-qr.png"
+            out = Path(temp_dir) / "with-qr.xlsm"
+            self._make_qr(qr)
+            spec["qr_image"] = str(qr)
+            build_workbook(spec, out)
+            wb = load_workbook(out, keep_vba=True, data_only=False)
+            ws = wb["Sheet1"]
+
+            self.assertIsNotNone(wb.vba_archive)
+            self.assertEqual(len(ws._images), 1)
+            image = ws._images[0]
+            self.assertEqual(image.anchor._from.col, 3)
+            self.assertEqual(image.anchor._from.row, 10)
+            self.assertGreater(image.width, 0)
+            self.assertGreater(image.height, 0)
+            with zipfile.ZipFile(out) as archive:
+                self.assertIn("xl/media/image1.png", archive.namelist())
+
+    def test_rejects_missing_qr_image_path(self):
+        spec = {
+            "source_mode": "kidney",
+            "products": [],
+            "kidney_rows": [{"cn": "甲", "amount": 1}],
+            "qr_image": "/tmp/does-not-exist-codex-qr.png",
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out = Path(temp_dir) / "missing-qr.xlsm"
+            with self.assertRaisesRegex(ValueError, "qr_image"):
+                build_workbook(spec, out)
+            self.assertFalse(out.exists())
+
+    def test_omits_qr_when_no_path_is_provided(self):
+        spec = {
+            "source_mode": "kidney",
+            "products": [],
+            "kidney_rows": [{"cn": "甲", "amount": 1}],
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            out = Path(temp_dir) / "no-qr.xlsm"
+            build_workbook(spec, out)
+            ws = load_workbook(out, keep_vba=True, data_only=False)["Sheet1"]
+            self.assertEqual(len(ws._images), 0)
 
 
 if __name__ == "__main__":

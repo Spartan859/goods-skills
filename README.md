@@ -28,7 +28,7 @@
 - 有排表和价格信息时生成上半部排表与下半部肾表。
 - 已提供肾表时排表留空，并统一输出 `CN、应付、点数`。
 - 支持表格、文本或图片抽取后的规范化数据。
-- 保留价格公式和原汇总宏，不含支付宝二维码或示例个人信息。
+- 保留价格公式和原汇总宏；二维码由本地记忆默认值或用户当次提供，公开仓库不保存个人二维码。
 
 生成前必须从资料推断或使用默认配列数，并询问用户确认，不得静默采用数量。
 
@@ -43,7 +43,7 @@ mkdir -p "$HOME/.agents/skills"
 cp -R qq-comment-to-sheet order-to-kidney-sheet "$HOME/.agents/skills/"
 ```
 
-也可将目录放入项目的 `.agents/skills/`，作为仓库级技能使用。`order-to-kidney-sheet` 的生成脚本需要 Python 3.10+ 与 `openpyxl`。
+也可将目录放入项目的 `.agents/skills/`，作为仓库级技能使用。`order-to-kidney-sheet` 的生成脚本需要 Python 3.10+、`openpyxl` 与 `Pillow`。
 
 ## 目录结构
 
